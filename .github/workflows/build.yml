@@ -1,0 +1,57 @@
+name: Build MetaMask Extension
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      YARN_ENABLE_IMMUTABLE_INSTALLS: "false"
+      METAMASK_PLATFORM: chrome
+      METAMASK_BUILD_TYPE: prod
+      METAMASK_ENVIRONMENT: production
+      METAMASK_DEBUG: "false"
+      INFURA_PROD_PROJECT_ID: 8d5f86392a1040aea75c21f71f44629d
+      SEGMENT_PROD_WRITE_KEY: dummy
+      APPLE_PROD_CLIENT_ID: dummy
+      GOOGLE_PROD_CLIENT_ID: 756977845748-80qcdiadu5mffeuf7vcefmjjb5k8vn34.apps.googleusercontent.com
+      SENTRY_DSN: https://fake@sentry.io/0000000
+      SENTRY_DSN_DEV: https://fake@sentry.io/0000000
+      SENTRY_DSN_PERFORMANCE: ""
+      USE_SNOW: "false"
+      APPLY_LAVAMOAT: "true"
+      FILE_NAMES: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.11.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Activate Yarn
+        run: corepack prepare yarn@4.10.3 --activate
+
+      - name: Verify toolchain
+        run: |
+          node --version
+          yarn --version
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Build MetaMask (prod)
+        run: yarn build prod
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metamask-extension-prod
+          path: dist/chrome

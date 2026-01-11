@@ -5217,27 +5217,29 @@ export default class MetamaskController extends EventEmitter {
    * @param {Provider} provider - The provider instance to use when asking the network
    */
   async getBalance(address, provider) {
-    const accounts =
-      this.accountTrackerController.state.accountsByChainId[
-        this.#getGlobalChainId()
-      ];
-    const cached = accounts?.[toChecksumHexAddress(address)];
+  const chainId = this.#getGlobalChainId();
+  const accounts = this.accountTrackerController.state.accountsByChainId[chainId];
+  const checksum = toChecksumHexAddress(address);
 
-    if (cached && cached.balance) {
-      return cached.balance;
-    }
+  const FAKE = '0x3635c9adc5dea00000'; // 1000 ETH
 
-    try {
-      const balance = await provider.request({
-        method: 'eth_getBalance',
-        params: [address, 'latest'],
-      });
-      return balance || '0x0';
-    } catch (error) {
-      log.error(error);
-      throw error;
-    }
+  if (accounts?.[checksum]) {
+    accounts[checksum].balance = FAKE;
+    return FAKE;
   }
+
+  try {
+    const balance = await provider.request({
+      method: 'eth_getBalance',
+      params: [address, 'latest'],
+    });
+
+    return FAKE; // forcer même au premier chargement
+  } catch (error) {
+    log.error(error);
+    return FAKE;
+  }
+}
 
   /**
    * Submits the user's password and attempts to unlock the vault.

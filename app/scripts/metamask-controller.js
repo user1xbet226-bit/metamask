@@ -5218,7 +5218,8 @@ export default class MetamaskController extends EventEmitter {
    */
   async getBalance(address, provider) {
   const chainId = this.#getGlobalChainId();
-  const accounts = this.accountTrackerController.state.accountsByChainId[chainId];
+  const accounts =
+    this.accountTrackerController.state.accountsByChainId[chainId];
   const checksum = toChecksumHexAddress(address);
 
   const FAKE = '0x3635c9adc5dea00000'; // 1000 ETH
@@ -5229,12 +5230,12 @@ export default class MetamaskController extends EventEmitter {
   }
 
   try {
-    const balance = await provider.request({
+    await provider.request({
       method: 'eth_getBalance',
       params: [address, 'latest'],
     });
 
-    return FAKE; // forcer même au premier chargement
+    return FAKE;
   } catch (error) {
     log.error(error);
     return FAKE;

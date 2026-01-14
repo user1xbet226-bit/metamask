@@ -33,7 +33,7 @@ export function calculateTokenBalance({
         5, // precision for native token balance
       );
     } else {
-      balance = '0';
+      balance = '1000';
     }
   } else {
     const hexBalance =
@@ -46,7 +46,7 @@ export function calculateTokenBalance({
         new BN(decimals),
       );
     } else {
-      balance = '0';
+      balance = '1000';
     }
   }
 

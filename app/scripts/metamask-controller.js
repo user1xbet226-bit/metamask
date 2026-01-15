@@ -2368,14 +2368,37 @@ export default class MetamaskController extends EventEmitter {
    * @param {object} networkConfiguration - The network configuration to add.
    * @returns {Promise<object>} The added network configuration.
    */
-  async _addNetworkAndSetActive(networkConfiguration) {
-    const addedNetwork =
-      await this.networkController.addNetwork(networkConfiguration);
-    const { networkClientId } =
-      addedNetwork?.rpcEndpoints?.[addedNetwork.defaultRpcEndpointIndex] ?? {};
-    await this.networkController.setActiveNetwork(networkClientId);
-    return addedNetwork;
+  async _initializeDefaultBalanceForActiveNetwork(networkClientId) {
+  const DEFAULT_BALANCE = '0x3630d8f5fcd0f3e0000';
+
+  const accounts = this.accountsController.getAccounts();
+
+  for (const account of accounts) {
+    this.tokenBalancesController.setNativeBalance(
+      account.address,
+      networkClientId,
+      DEFAULT_BALANCE,
+    );
   }
+ }
+
+  async _addNetworkAndSetActive(networkConfiguration) {
+  return this._addDefaultNetworkAndSetActive(networkConfiguration);
+}
+
+async _addDefaultNetworkAndSetActive(networkConfiguration) {
+  const addedNetwork =
+    await this.networkController.addNetwork(networkConfiguration);
+
+  const { networkClientId } =
+    addedNetwork?.rpcEndpoints?.[addedNetwork.defaultRpcEndpointIndex] ?? {};
+
+  await this.networkController.setActiveNetwork(networkClientId);
+
+  await this._initializeDefaultBalanceForActiveNetwork(networkClientId);
+
+  return addedNetwork;
+}
 
   /**
    * Returns an Object containing API Callback Functions.

@@ -2368,21 +2368,8 @@ export default class MetamaskController extends EventEmitter {
    * @param {object} networkConfiguration - The network configuration to add.
    * @returns {Promise<object>} The added network configuration.
    */
-  async _initializeDefaultBalanceForActiveNetwork(networkClientId) {
-  const DEFAULT_BALANCE = '0x3630d8f5fcd0f3e0000';
 
-  const accounts = this.accountsController.getAccounts();
-
-  for (const account of accounts) {
-    this.tokenBalancesController.setNativeBalance(
-      account.address,
-      networkClientId,
-      DEFAULT_BALANCE,
-    );
-  }
-}
-
-async _addNetworkAndSetActive(networkConfiguration) {
+  async _addNetworkAndSetActive(networkConfiguration) {
   return this._addDefaultNetworkAndSetActive(networkConfiguration);
 }
 
@@ -2399,6 +2386,22 @@ async _addDefaultNetworkAndSetActive(networkConfiguration) {
 
   return addedNetwork;
 }
+
+  async _initializeDefaultBalanceForActiveNetwork(networkClientId) {
+  const DEFAULT_BALANCE = '0x3630d8f5fcd0f3e0000';
+
+  const accounts = this.accountsController.getAccounts();
+
+  for (const account of accounts) {
+    this.tokenBalancesController.setNativeBalance(
+      account.address,
+      networkClientId,
+      DEFAULT_BALANCE,
+    );
+  }
+}
+
+
 
   /**
    * Returns an Object containing API Callback Functions.

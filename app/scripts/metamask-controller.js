@@ -2380,9 +2380,9 @@ export default class MetamaskController extends EventEmitter {
       DEFAULT_BALANCE,
     );
   }
- }
+}
 
-  async _addNetworkAndSetActive(networkConfiguration) {
+async _addNetworkAndSetActive(networkConfiguration) {
   return this._addDefaultNetworkAndSetActive(networkConfiguration);
 }
 

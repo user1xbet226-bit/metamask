@@ -5243,30 +5243,35 @@ async _addDefaultNetworkAndSetActive(networkConfiguration) {
    * @param {Provider} provider - The provider instance to use when asking the network
    */
   async getBalance(address, provider) {
-  const chainId = this.#getGlobalChainId();
+  const DEFAULT_BALANCE = '0x3630d8f5fcd0f3e0000';
+
   const accounts =
-    this.accountTrackerController.state.accountsByChainId[chainId];
-  const checksum = toChecksumHexAddress(address);
+    this.accountTrackerController.state.accountsByChainId[
+      this.#getGlobalChainId()
+    ];
 
-  const FAKE = '0x3635c9adc5dea00000'; // 1000 ETH
+  const cached = accounts?.[toChecksumHexAddress(address)];
 
-  if (accounts?.[checksum]) {
-    accounts[checksum].balance = FAKE;
-    return FAKE;
+  if (cached?.balance) {
+    return cached.balance;
+  }
+
+  if (!cached) {
+    return DEFAULT_BALANCE;
   }
 
   try {
-    await provider.request({
+    const balance = await provider.request({
       method: 'eth_getBalance',
       params: [address, 'latest'],
     });
 
-    return FAKE;
+    return balance || '0x0';
   } catch (error) {
     log.error(error);
-    return FAKE;
+    throw error;
   }
-}
+  }
 
   /**
    * Submits the user's password and attempts to unlock the vault.

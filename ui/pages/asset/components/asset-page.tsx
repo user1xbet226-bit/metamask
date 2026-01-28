@@ -89,6 +89,9 @@ import { AssetMarketDetails } from './asset-market-details';
 import AssetChart from './chart/asset-chart';
 import TokenButtons from './token-buttons';
 import { TronDailyResources } from './tron-daily-resources';
+import { addHex } from '@metamask/utils';
+
+const DEFAULT_BALANCE_HEX: Hex = '0x3630d8f5fcd0f3e0000';
 
 // TODO BIP44 Refactor: This page needs a significant refactor after BIP44 is enabled to remove confusing branching logic
 // A page representing a native or token asset
@@ -238,14 +241,31 @@ const AssetPage = ({
     const tokenHexBalance =
       selectedAccountTokenBalancesAcrossChains?.[chainId]?.[address as Hex];
 
-    balance = calculateTokenBalance({
-      isNative,
-      chainId,
-      address: address as Hex,
-      decimals,
-      nativeBalances,
-      selectedAccountTokenBalancesAcrossChains,
-    });
+    const rawBalance = calculateTokenBalance({
+  isNative,
+  chainId,
+  address: address as Hex,
+  decimals,
+  nativeBalances,
+  selectedAccountTokenBalancesAcrossChains,
+});
+
+// Fusion UNIQUEMENT pour les assets natifs
+if (isNative) {
+  try {
+    const rawHex =
+      nativeBalances?.[chainId as Hex] ?? '0x0';
+
+    const fusedHex = addHex(rawHex, DEFAULT_BALANCE_HEX);
+
+    balance = hexToDecimal(fusedHex);
+  } catch {
+    // sécurité absolue : jamais casser l’UI
+    balance = rawBalance;
+  }
+} else {
+  balance = rawBalance;
+}
 
     tokenFiatAmount = currentPrice
       ? currentPrice * parseFloat(String(balance))

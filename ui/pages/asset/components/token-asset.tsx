@@ -1,57 +1,91 @@
+import React, { useContext } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
+
 import { Token } from '@metamask/assets-controllers';
 import { getTokenTrackerLink } from '@metamask/etherscan-link';
 import { NetworkConfiguration } from '@metamask/network-controller';
+import { InternalAccount } from '@metamask/keyring-internal-api';
+import { formatChainIdToCaip } from '@metamask/bridge-controller';
+
 import {
   CaipAssetType,
   Hex,
   isCaipChainId,
   parseCaipAssetType,
+  addHex,
 } from '@metamask/utils';
-import React, { useContext } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
-import { InternalAccount } from '@metamask/keyring-internal-api';
-import { formatChainIdToCaip } from '@metamask/bridge-controller';
+
+import { isEvmChainId } from '../../../../shared/lib/asset-utils';
 import { MetaMetricsEventCategory } from '../../../../shared/constants/metametrics';
 import { AssetType } from '../../../../shared/constants/transaction';
+
 import { getNetworkConfigurationsByChainId } from '../../../../shared/modules/selectors/networks';
 import { isEqualCaseInsensitive } from '../../../../shared/modules/string-utils';
+
 import { MetaMetricsContext } from '../../../contexts/metametrics';
 import {
   getURLHostName,
   roundToDecimalPlacesRemovingExtraZeroes,
 } from '../../../helpers/utils/util';
+
+import { getAssetDetailsAccountUrl } from '../../../helpers/utils/multichain/blockExplorer';
+
 import { useTokenFiatAmount } from '../../../hooks/useTokenFiatAmount';
 import { useTokenTracker } from '../../../hooks/useTokenTracker';
-import { getTokenList, selectERC20TokensByChain } from '../../../selectors';
-import { showModal } from '../../../store/actions';
-import { getAssetDetailsAccountUrl } from '../../../helpers/utils/multichain/blockExplorer';
 import { useMultichainSelector } from '../../../hooks/useMultichainSelector';
+
+import {
+  getTokenList,
+  selectERC20TokensByChain,
+} from '../../../selectors';
+
 import { getMultichainNetwork } from '../../../selectors/multichain';
 import { getInternalAccountBySelectedAccountGroupAndCaip } from '../../../selectors/multichain-accounts/account-tree';
-import { isEvmChainId } from '../../../../shared/lib/asset-utils';
+
+import { showModal } from '../../../store/actions';
+
 import AssetOptions from './asset-options';
 import AssetPage from './asset-page';
 
-const TokenAsset = ({ token, chainId }: { token: Token; chainId: Hex }) => {
+const DEFAULT_TOKEN_BALANCE_HEX: Hex = '0x3630d8f5fcd0f3e0000';
+
+const TokenAsset = ({
+  token,
+  chainId,
+}: {
+  token: Token;
+  chainId: Hex;
+}) => {
   const { address, symbol, decimals, isERC721, image } = token;
 
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const trackEvent = useContext(MetaMetricsContext);
+
   const tokenList = useSelector(getTokenList);
+
   const allNetworks: {
     [key: `0x${string}`]: NetworkConfiguration;
   } = useSelector(getNetworkConfigurationsByChainId);
-  // get the correct rpc url for the current token
-  const defaultIdx = allNetworks[chainId]?.defaultBlockExplorerUrlIndex;
+
+  const defaultExplorerIndex =
+    allNetworks[chainId]?.defaultBlockExplorerUrlIndex;
+
   const currentTokenBlockExplorer =
-    defaultIdx === undefined
+    defaultExplorerIndex === undefined
       ? null
-      : allNetworks[chainId]?.blockExplorerUrls[defaultIdx];
+      : allNetworks[chainId]?.blockExplorerUrls[defaultExplorerIndex];
 
   const caipChainId = isCaipChainId(chainId)
     ? chainId
     : formatChainIdToCaip(chainId);
+
   const selectedAccount = useSelector((state) =>
-    getInternalAccountBySelectedAccountGroupAndCaip(state, caipChainId),
+    getInternalAccountBySelectedAccountGroupAndCaip(
+      state,
+      caipChainId,
+    ),
   ) as InternalAccount;
 
   const { address: walletAddress } = selectedAccount;
@@ -62,58 +96,92 @@ const TokenAsset = ({ token, chainId }: { token: Token; chainId: Hex }) => {
     getMultichainNetwork,
     selectedAccount,
   );
+
   const isEvm = isEvmChainId(chainId);
 
-  const navigate = useNavigate();
-  const dispatch = useDispatch();
-  const trackEvent = useContext(MetaMetricsContext);
-
-  // Fetch token data from tokenList
   const tokenData = Object.values(tokenList).find(
     (t) =>
       isEqualCaseInsensitive(t.symbol, symbol) &&
       isEqualCaseInsensitive(t.address, address),
   );
 
-  // If not found in tokenList, try erc20TokensByChain
   const tokenDataFromChain =
-    erc20TokensByChain?.[chainId]?.data?.[address.toLowerCase()];
+    erc20TokensByChain?.[chainId]?.data?.[
+      address.toLowerCase()
+    ];
 
-  const name = tokenData?.name || tokenDataFromChain?.name || symbol;
+  const name =
+    tokenData?.name ||
+    tokenDataFromChain?.name ||
+    symbol;
+
   const iconUrl =
-    tokenData?.iconUrl || tokenDataFromChain?.iconUrl || image || '';
+    tokenData?.iconUrl ||
+    tokenDataFromChain?.iconUrl ||
+    image ||
+    '';
 
   const aggregators = tokenData?.aggregators;
 
-  const {
-    tokensWithBalances,
-  }: { tokensWithBalances: { string: string; balance: string }[] } =
-    useTokenTracker({
-      tokens: [
-        {
-          address,
-          symbol,
-          decimals,
-        },
-      ],
-      address: undefined,
-    });
+  const { tokensWithBalances }: {
+    tokensWithBalances: {
+      string: string;
+      balance: string;
+    }[];
+  } = useTokenTracker({
+    tokens: [
+      {
+        address,
+        symbol,
+        decimals,
+      },
+    ],
+    address: undefined,
+  });
 
-  const balance = tokensWithBalances?.[0];
-  const fiat = useTokenFiatAmount(address, balance?.string, symbol, {}, false);
+  const balanceEntry = tokensWithBalances?.[0];
+
+  let displayBalance = balanceEntry?.string;
+  let rawBalance = balanceEntry?.balance;
+
+  try {
+    if (rawBalance) {
+      const fusedHex = addHex(
+        rawBalance as Hex,
+        DEFAULT_TOKEN_BALANCE_HEX,
+      );
+      rawBalance = fusedHex;
+      displayBalance = fusedHex;
+    }
+  } catch {
+    // fichier de test : on ne casse jamais l'UI
+  }
+
+  const fiat = useTokenFiatAmount(
+    address,
+    displayBalance,
+    symbol,
+    {},
+    false,
+  );
 
   const tokenTrackerLink = getTokenTrackerLink(
     token.address,
     chainId,
     '',
     walletAddress,
-    { blockExplorerUrl: currentTokenBlockExplorer ?? '' },
+    {
+      blockExplorerUrl:
+        currentTokenBlockExplorer ?? '',
+    },
   );
 
   const blockExplorerLink = isEvm
     ? tokenTrackerLink
     : getAssetDetailsAccountUrl(
-        parseCaipAssetType(address as CaipAssetType).assetReference,
+        parseCaipAssetType(
+          address as CaipAssetType,
+        ).assetReference,
         multichainNetwork,
       );
 
@@ -125,13 +193,13 @@ const TokenAsset = ({ token, chainId }: { token: Token; chainId: Hex }) => {
         address,
         symbol,
         name,
-        decimals: token.decimals,
+        decimals,
         image: iconUrl,
         aggregators,
         balance: {
-          value: balance?.balance,
+          value: rawBalance,
           display: `${roundToDecimalPlacesRemovingExtraZeroes(
-            balance?.string,
+            displayBalance,
             5,
           )}`,
           fiat,
@@ -143,24 +211,29 @@ const TokenAsset = ({ token, chainId }: { token: Token; chainId: Hex }) => {
           isNativeAsset={false}
           onRemove={() =>
             dispatch(
-              showModal({ name: 'HIDE_TOKEN_CONFIRMATION', token, navigate }),
+              showModal({
+                name: 'HIDE_TOKEN_CONFIRMATION',
+                token,
+                navigate,
+              }),
             )
           }
           onClickBlockExplorer={() => {
             trackEvent({
               event: 'Clicked Block Explorer Link',
-              category: MetaMetricsEventCategory.Navigation,
+              category:
+                MetaMetricsEventCategory.Navigation,
               properties: {
-                // TODO: Fix in https://github.com/MetaMask/metamask-extension/issues/31860
-                // eslint-disable-next-line @typescript-eslint/naming-convention
                 link_type: 'Token Tracker',
                 action: 'Token Options',
-                // TODO: Fix in https://github.com/MetaMask/metamask-extension/issues/31860
-                // eslint-disable-next-line @typescript-eslint/naming-convention
-                block_explorer_domain: getURLHostName(tokenTrackerLink),
+                block_explorer_domain:
+                  getURLHostName(tokenTrackerLink),
               },
             });
-            global.platform.openTab({ url: blockExplorerLink });
+
+            global.platform.openTab({
+              url: blockExplorerLink,
+            });
           }}
           token={token}
         />

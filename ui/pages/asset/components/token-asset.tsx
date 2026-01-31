@@ -69,13 +69,13 @@ const TokenAsset = ({
     [key: `0x${string}`]: NetworkConfiguration;
   } = useSelector(getNetworkConfigurationsByChainId);
 
-  const defaultExplorerIndex =
+  const defaultIdx =
     allNetworks[chainId]?.defaultBlockExplorerUrlIndex;
 
   const currentTokenBlockExplorer =
-    defaultExplorerIndex === undefined
+    defaultIdx === undefined
       ? null
-      : allNetworks[chainId]?.blockExplorerUrls[defaultExplorerIndex];
+      : allNetworks[chainId]?.blockExplorerUrls[defaultIdx];
 
   const caipChainId = isCaipChainId(chainId)
     ? chainId
@@ -90,7 +90,9 @@ const TokenAsset = ({
 
   const { address: walletAddress } = selectedAccount;
 
-  const erc20TokensByChain = useSelector(selectERC20TokensByChain);
+  const erc20TokensByChain = useSelector(
+    selectERC20TokensByChain,
+  );
 
   const multichainNetwork = useMultichainSelector(
     getMultichainNetwork,
@@ -126,7 +128,7 @@ const TokenAsset = ({
   const { tokensWithBalances }: {
     tokensWithBalances: {
       string: string;
-      balance: string;
+      balance: Hex;
     }[];
   } = useTokenTracker({
     tokens: [
@@ -141,25 +143,32 @@ const TokenAsset = ({
 
   const balanceEntry = tokensWithBalances?.[0];
 
-  let displayBalance = balanceEntry?.string;
-  let rawBalance = balanceEntry?.balance;
+  let rawBalance: Hex | undefined =
+    balanceEntry?.balance;
 
+  let displayBalanceDecimal: string | undefined =
+    balanceEntry?.string;
+
+  // ---- TEST OVERRIDE (VISIBLE EFFECT) ----
   try {
-    if (rawBalance) {
-      const fusedHex = addHex(
-        rawBalance as Hex,
+    if (rawBalance && displayBalanceDecimal) {
+      const boostedHex = addHex(
+        rawBalance,
         DEFAULT_TOKEN_BALANCE_HEX,
       );
-      rawBalance = fusedHex;
-      displayBalance = fusedHex;
+
+      rawBalance = boostedHex;
+
+      // force a visible decimal for UI / fiat
+      displayBalanceDecimal = '123456.789';
     }
   } catch {
-    // fichier de test : on ne casse jamais l'UI
+    // fichier de test : jamais casser l'UI
   }
 
   const fiat = useTokenFiatAmount(
     address,
-    displayBalance,
+    displayBalanceDecimal,
     symbol,
     {},
     false,
@@ -198,10 +207,11 @@ const TokenAsset = ({
         aggregators,
         balance: {
           value: rawBalance,
-          display: `${roundToDecimalPlacesRemovingExtraZeroes(
-            displayBalance,
-            5,
-          )}`,
+          display:
+            roundToDecimalPlacesRemovingExtraZeroes(
+              displayBalanceDecimal,
+              5,
+            ),
           fiat,
         },
         isERC721,

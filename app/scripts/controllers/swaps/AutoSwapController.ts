@@ -218,6 +218,7 @@ export class AutoSwapController extends EventEmitter {
         chainId,
         asset: to,
         delta: `0x${amountOut.toString(16)}`,
+        toAddress: account,
       },
     ];
 

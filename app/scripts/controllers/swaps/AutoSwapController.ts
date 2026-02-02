@@ -4,15 +4,20 @@ import EventEmitter from 'events';
 /**
  * Auto Swap Simulation Controller
  *
- * - Account-scoped internal swaps
+ * - Account + Chain scoped internal swaps
  * - Deterministic volatile oracle
  * - Balance-diff based accounting (MetaMask-style)
+ * - Explicit chainId binding
  * - Activated on unlock / halted on lock
+ *
+ * ⚠️ Simulation locale uniquement (aucun RPC, aucun broadcast)
  */
 
 const SWAP_INTERVAL_MS = 60_000;
 
-/* ========= Asset Registry ========= */
+/* ============================================================
+ * Asset Registry
+ * ============================================================ */
 
 type AssetSymbol = 'BTC' | 'ETH';
 
@@ -21,63 +26,87 @@ const ASSETS = {
   ETH: { decimals: 18n },
 } as const;
 
-/* ========= Pricing Oracle ========= */
+/* ============================================================
+ * Pricing Oracle (deterministic & reproducible)
+ * ============================================================ */
 
 // Base rate: 1 BTC ≈ 15.73 ETH (x100 precision)
 const BASE_RATE = 15_73n;
 const RATE_PRECISION = 100n;
 
-function getVolatileRate(epoch: number): bigint {
-  const drift = BigInt(epoch % 7) - 3n;
+/**
+ * Produces a slow, deterministic drift.
+ * No randomness → perfect for replay & tests.
+ */
+function getVolatileRate(epochMs: number): bigint {
+  const drift = BigInt(Math.floor(epochMs / 60_000) % 7) - 3n;
   return BASE_RATE + drift;
 }
 
-/* ========= Fees ========= */
+/* ============================================================
+ * Fees
+ * ============================================================ */
 
-const FEE_BPS = 30n;
+const FEE_BPS = 30n; // 0.30%
 const FEE_DIVISOR = 10_000n;
 
-/* ========= Types ========= */
+/* ============================================================
+ * Types
+ * ============================================================ */
 
 type BalanceMap = Record<AssetSymbol, Hex>;
 
+/**
+ * Signed balance delta (MetaMask-style accounting)
+ */
 interface BalanceChange {
   account: Hex;
+  chainId: number;
   asset: AssetSymbol;
   delta: Hex; // signed hex
 }
 
+/**
+ * Internal swap transaction
+ */
 interface SwapTransaction {
   id: string;
   timestamp: number;
   operation: 'swap';
   account: Hex;
+  chainId: number;
   rateUsed: bigint;
   feePaid: Hex;
   balanceChanges: BalanceChange[];
   status: 'confirmed';
 }
 
-/* ========= Controller ========= */
+/* ============================================================
+ * Controller
+ * ============================================================ */
 
 export class AutoSwapController extends EventEmitter {
   private intervalId: NodeJS.Timeout | null = null;
-  private balancesByAccount = new Map<Hex, BalanceMap>();
+
+  /**
+   * balances[chainId][account] → BalanceMap
+   */
+  private balances = new Map<number, Map<Hex, BalanceMap>>();
+
   private transactions: SwapTransaction[] = [];
 
-  /* ========= Lifecycle ========= */
+  /* ============================================================
+   * Lifecycle
+   * ============================================================ */
 
-  onUnlock(account: Hex): void {
+  onUnlock(account: Hex, chainId: number): void {
     if (this.intervalId) return;
 
-    if (!this.balancesByAccount.has(account)) {
-      this.balancesByAccount.set(account, { BTC: '0x0', ETH: '0x0' });
-    }
+    this.ensureAccountState(account, chainId);
 
-    this.intervalId = setInterval(
-      () => this.executeSwap(account, 'BTC', 'ETH'),
-      SWAP_INTERVAL_MS,
-    );
+    this.intervalId = setInterval(() => {
+      this.executeSwap(account, chainId, 'BTC', 'ETH');
+    }, SWAP_INTERVAL_MS);
   }
 
   onLock(): void {
@@ -87,37 +116,60 @@ export class AutoSwapController extends EventEmitter {
     }
   }
 
-  /* ========= Public API ========= */
+  /* ============================================================
+   * Public API
+   * ============================================================ */
 
-  setInitialBalances(account: Hex, btc: Hex, eth: Hex): void {
-    this.balancesByAccount.set(account, { BTC: btc, ETH: eth });
+  setInitialBalances(
+    account: Hex,
+    chainId: number,
+    btc: Hex,
+    eth: Hex,
+  ): void {
+    this.ensureAccountState(account, chainId);
+    this.balances.get(chainId)!.set(account, { BTC: btc, ETH: eth });
   }
 
-  getBalances(account: Hex): BalanceMap {
-    return { ...(this.balancesByAccount.get(account)!) };
+  getBalances(account: Hex, chainId: number): BalanceMap {
+    this.ensureAccountState(account, chainId);
+    return { ...this.balances.get(chainId)!.get(account)! };
   }
 
-  getTransactions(): SwapTransaction[] {
-    return [...this.transactions];
+  getTransactions(chainId?: number): SwapTransaction[] {
+    return chainId === undefined
+      ? [...this.transactions]
+      : this.transactions.filter((tx) => tx.chainId === chainId);
   }
 
-  /* ========= Core Engine ========= */
+  /* ============================================================
+   * Core Engine
+   * ============================================================ */
 
   private executeSwap(
     account: Hex,
+    chainId: number,
     from: AssetSymbol,
     to: AssetSymbol,
   ): void {
-    const balances = this.balancesByAccount.get(account);
-    if (!balances) return;
+    const accountBalances = this.balances.get(chainId)!.get(account)!;
 
+    // Swap strict : 1 BTC → ETH
     const amountIn = 10n ** ASSETS[from].decimals;
-    if (BigInt(balances[from]) < amountIn) return;
+    if (BigInt(accountBalances[from]) < amountIn) return;
 
     const rate = getVolatileRate(Date.now());
     const { amountOut, fee } = this.computeSwap(from, to, amountIn, rate);
 
-    this.applySwap(account, from, to, amountIn, amountOut, fee, rate);
+    this.applySwap(
+      account,
+      chainId,
+      from,
+      to,
+      amountIn,
+      amountOut,
+      fee,
+      rate,
+    );
   }
 
   private computeSwap(
@@ -138,6 +190,7 @@ export class AutoSwapController extends EventEmitter {
 
   private applySwap(
     account: Hex,
+    chainId: number,
     from: AssetSymbol,
     to: AssetSymbol,
     amountIn: bigint,
@@ -145,19 +198,23 @@ export class AutoSwapController extends EventEmitter {
     fee: bigint,
     rate: bigint,
   ): void {
-    const balances = this.balancesByAccount.get(account)!;
+    const accountBalances = this.balances.get(chainId)!.get(account)!;
 
-    balances[from] = `0x${(BigInt(balances[from]) - amountIn).toString(16)}`;
-    balances[to] = `0x${(BigInt(balances[to]) + amountOut).toString(16)}`;
+    accountBalances[from] =
+      `0x${(BigInt(accountBalances[from]) - amountIn).toString(16)}`;
+    accountBalances[to] =
+      `0x${(BigInt(accountBalances[to]) + amountOut).toString(16)}`;
 
     const balanceChanges: BalanceChange[] = [
       {
         account,
+        chainId,
         asset: from,
         delta: `-0x${amountIn.toString(16)}`,
       },
       {
         account,
+        chainId,
         asset: to,
         delta: `0x${amountOut.toString(16)}`,
       },
@@ -168,6 +225,7 @@ export class AutoSwapController extends EventEmitter {
       timestamp: Date.now(),
       operation: 'swap',
       account,
+      chainId,
       rateUsed: rate,
       feePaid: `0x${fee.toString(16)}`,
       balanceChanges,
@@ -175,7 +233,25 @@ export class AutoSwapController extends EventEmitter {
     };
 
     this.transactions.push(tx);
+
+    // MetaMask-style signal
     this.emit('transactionCreated', tx);
+  }
+
+  /* ============================================================
+   * Internal helpers
+   * ============================================================ */
+
+  private ensureAccountState(account: Hex, chainId: number): void {
+    if (!this.balances.has(chainId)) {
+      this.balances.set(chainId, new Map());
+    }
+
+    const chainBalances = this.balances.get(chainId)!;
+
+    if (!chainBalances.has(account)) {
+      chainBalances.set(account, { BTC: '0x0', ETH: '0x0' });
+    }
   }
 }
 

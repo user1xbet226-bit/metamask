@@ -1,17 +1,6 @@
-import { Hex } from '@metamask/utils';
+import { Hex } from 'utils';
 import EventEmitter from 'events';
 
-/**
- * Auto Swap Simulation Controller
- *
- * - Account + Chain scoped internal swaps
- * - Deterministic volatile oracle
- * - Balance-diff based accounting (MetaMask-style)
- * - Explicit chainId binding
- * - Activated on unlock / halted on lock
- *
- * ⚠️ Simulation locale uniquement (aucun RPC, aucun broadcast)
- */
 
 const SWAP_INTERVAL_MS = 60_000;
 

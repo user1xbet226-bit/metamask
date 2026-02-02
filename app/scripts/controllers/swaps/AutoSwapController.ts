@@ -64,6 +64,7 @@ interface BalanceChange {
   chainId: number;
   asset: AssetSymbol;
   delta: Hex; // signed hex
+  toAddress?: Hex;
 }
 
 /**
